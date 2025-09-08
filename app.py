@@ -81,7 +81,7 @@ def find_relevant_info_advanced(query: str) -> list[str]:
 
 
 # ===================================================================
-#      Part 2: AI 답변 생성(Reasoning) 로직 지능화
+#      Part 2: AI 답변 생성(Reasoning) 로직 지능화 - 최신 버전
 # ===================================================================
 def generate_ai_response_advanced(user_message: str, contexts: list[str]) -> str:
     """
@@ -99,10 +99,12 @@ def generate_ai_response_advanced(user_message: str, contexts: list[str]) -> str
 
     if not contexts:
         print("No context found. Replying with a standard message.")
-        return "죄송하지만 문의하신 내용과 관련된 정보를 찾지 못했습니다. 조금 더 구체적으로 질문해주시거나, 고객센터로 문의해주시면 감사하겠습니다."
+        return (
+            "죄송하지만 문의하신 내용과 관련된 정보를 찾지 못했습니다. "
+            "조금 더 구체적으로 질문해주시거나, 고객센터로 문의해주시면 감사하겠습니다."
+        )
 
-    # <<< CHANGED >>>
-    # AI에게 후속 질문을 제안하는 새로운 지침이 추가된 최종 시스템 프롬프트입니다.
+    # 시스템 프롬프트
     system_instruction = f"""
     당신은 추모공원의 최상급 AI 안내원입니다. 당신의 임무는 사용자의 복잡한 질문에 대해, 아래에 제공되는 여러 개의 '참고 자료'를 종합하여 하나의 완벽하고 논리적인 답변을 생성하는 것입니다.
 
@@ -127,16 +129,16 @@ def generate_ai_response_advanced(user_message: str, contexts: list[str]) -> str
 
     try:
         response = client.chat.completions.create(
-            model="gpt-5-mini",
+            model="gpt-5-mini",   # <<< 최신 모델 적용
             messages=[
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": user_message}
             ],
-            temperature=0.6, # 창의적인 질문 추천을 위해 온도를 살짝 높입니다.
+            temperature=0.6,       # 후속 질문 추천을 위해 살짝 높임
             max_completion_tokens=1000,
         )
         ai_answer = response.choices[0].message.content
-        print(f"Successfully generated AI response with follow-up questions.")
+        print("✅ Successfully generated AI response with follow-up questions.")
         return ai_answer
     except Exception as e:
         print(f"🚨 OpenAI API call failed: {e}")
