@@ -134,7 +134,7 @@ def generate_ai_response_advanced(user_message: str, contexts: list[str]) -> str
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": user_message}
             ],
-            temperature=0.6,       # 후속 질문 추천을 위해 살짝 높임
+            temperature=1,       # 후속 질문 추천을 위해 살짝 높임
             max_completion_tokens=1000,
         )
         ai_answer = response.choices[0].message.content
