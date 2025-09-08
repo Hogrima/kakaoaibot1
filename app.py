@@ -129,7 +129,7 @@ def generate_ai_response_advanced(user_message: str, contexts: list[str]) -> str
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",   # <<< 최신 모델 적용
+            model="gpt-5-mini",   # <<< 최신 모델 적용
             messages=[
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": user_message}
