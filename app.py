@@ -133,7 +133,7 @@ def generate_ai_response_advanced(user_message: str, contexts: list[str]) -> str
                 {"role": "user", "content": user_message}
             ],
             temperature=0.6, # 창의적인 질문 추천을 위해 온도를 살짝 높입니다.
-            max_tokens=1000,
+            max_completion_tokens=1000,
         )
         ai_answer = response.choices[0].message.content
         print(f"Successfully generated AI response with follow-up questions.")
