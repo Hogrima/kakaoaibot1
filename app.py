@@ -122,11 +122,10 @@ def send_to_slack(message: str):
         print(f"⚠️ Failed to send Slack notification: {e}")
 
 def process_and_send_callback(user_message, callback_url):
-    """백그라운드에서 AI 답변 생성, 로그 기록, 슬랙 전송, 최종 답변 전송을 모두 처리합니다."""
     print("Starting background processing (Total Knowledge Ingestion)...")
     ai_response_text = generate_ai_response_total_knowledge(user_message)
 
-    # 1. 서버 로그에 답변 미리보기 기록 (기본 모니터링)
+    # 서버 로그 기록 (기본 모니터링)
     log_message = (
         f"{'='*50}\n"
         f"[AI RESPONSE PREVIEW & LOG]\n"
@@ -136,11 +135,21 @@ def process_and_send_callback(user_message, callback_url):
     )
     print(log_message)
 
-    # 2. 슬랙으로 실시간 알림 전송 (고급 모니터링)
+    # <<< CHANGED: 최종 답변 검증 및 폴백(Fallback) 로직 추가 >>>
+    # =================================================================
+    # AI가 빈 답변을 생성했는지 최종적으로 확인합니다.
+    # .strip()은 공백 문자만 있는 경우도 비어있는 것으로 처리합니다.
+    if not ai_response_text or not ai_response_text.strip():
+        print("🚨 CRITICAL: AI returned an empty response. Sending a fallback message.")
+        # AI가 답변 생성에 실패했을 때 사용자에게 보낼 표준 오류 메시지
+        ai_response_text = "죄송합니다. AI가 답변을 생성하는 데 실패했습니다. 질문을 조금 더 구체적으로 해주시거나, 잠시 후 다시 시도해주세요."
+    # =================================================================
+
+    # 슬랙으로 실시간 알림 전송 (고급 모니터링)
     slack_message = f"💬 **New Chat Interaction**\n\n*User asked:*\n`{user_message}`\n\n*Bot answered:*\n```{ai_response_text}```"
     send_to_slack(slack_message)
     
-    # 3. 최종 답변을 카카오톡 서버로 전송
+    # 최종 답변을 카카오톡 서버로 전송
     final_response_data = {"version": "2.0", "template": {"outputs": [{"simpleText": {"text": ai_response_text}}]}}
     headers = {'Content-Type': 'application/json'}
     try:
