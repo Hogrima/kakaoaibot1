@@ -1,16 +1,12 @@
 # ===================================================================
-#           KakaoTalk AI Chatbot - The Definitive Final Version
+#           KakaoTalk AI Chatbot - Robust Final Version (NameError Fixed)
 #
 #   - Author: Gemini (as a world-class AI expert coder)
-#   - Architecture: AI Semantic Search (RAG) with Asynchronous Callback
-#   - Note: This code is synchronized with the semantic-search-optimized
-#           knowledge.csv (category,question,answer format).
+#   - Architecture: Total Knowledge Ingestion (Robust & Stable)
 # ===================================================================
 
 import os
 import pandas as pd
-import numpy as np
-from numpy.linalg import norm
 import threading
 import requests
 import json
@@ -19,97 +15,86 @@ from openai import OpenAI
 from dotenv import load_dotenv
 
 # --- ⚙️ 시스템 설정 (Configuration) ---
-CHAT_MODEL = "gpt-5-nano" # (실제로는 gpt-4o 등으로 작동)
-EMBEDDING_MODEL = "text-embedding-3-large"
-MAX_CONTEXT_RESULTS = 3
-SIMILARITY_THRESHOLD = 0.75
+CHAT_MODEL = "gpt-5-nano"
 
 # --- 환경 설정 및 클라이언트 초기화 ---
 load_dotenv()
 app = Flask(__name__)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# --- AI 검색을 위한 전역 변수 ---
-question_embeddings = None
-kb_dataframe = None
+# --- 전체 지식 베이스를 저장할 전역 변수 ---
+KNOWLEDGE_TEXTBOOK = ""
 
 # ===================================================================
-#      Part 1: AI 시맨틱 서치 엔진
+#      Part 1: 지식 베이스 컴파일 엔진
 # ===================================================================
-def get_embedding(text, model=EMBEDDING_MODEL):
-   text = text.replace("\n", " ")
-   return client.embeddings.create(input=[text], model=model).data[0].embedding
 
-def cosine_similarity(A, B):
-    return np.dot(A, B) / (norm(A) * norm(B))
-
-def initialize_knowledge_base():
-    global kb_dataframe, question_embeddings
+def load_and_format_knowledge_base():
+    """
+    (서버 시작 시 1회 실행)
+    knowledge.csv를 로드하고, AI가 이해하기 쉬운 Markdown 형식의
+    거대한 텍스트 '교과서'를 생성합니다.
+    """
+    global KNOWLEDGE_TEXTBOOK
     try:
         current_dir = os.path.dirname(__file__)
         csv_path = os.path.join(current_dir, 'knowledge.csv')
-        embedding_file = os.path.join(current_dir, 'question_embeddings.npy')
-        
-        # <<< 핵심 수정: 이제 'question' 열이 있는 CSV를 읽습니다 >>>
-        kb_dataframe = pd.read_csv(csv_path)
-        print("✅ Knowledge base loaded. Checking for embeddings...")
-
-        if os.path.exists(embedding_file):
-            question_embeddings = np.load(embedding_file)
-            print(f"✅ Pre-computed embeddings loaded.")
-        else:
-            print(f"⚠️ Embeddings file not found. Generating new embeddings...")
-            # 'question' 열을 사용하여 임베딩을 생성합니다.
-            kb_dataframe['embedding'] = kb_dataframe['question'].apply(lambda x: get_embedding(str(x)))
-            question_embeddings = np.array(kb_dataframe['embedding'].tolist())
-            np.save(embedding_file, question_embeddings)
-            print(f"✅ Embeddings generated and saved.")
+        print(f"Attempting to load knowledge base from: {csv_path}")
+        kb_dataframe = pd.read_csv(csv_path, encoding='utf-8-sig')
+        print("✅ Knowledge base CSV file loaded successfully. Compiling into a single textbook...")
+        formatted_texts = []
+        for category, group in kb_dataframe.groupby('category'):
+            formatted_texts.append(f"## {category}\n")
+            for index, row in group.iterrows():
+                formatted_texts.append(f"### {row['topic']}\n{row['content']}\n")
+        KNOWLEDGE_TEXTBOOK = "\n".join(formatted_texts)
+        print("✅ Knowledge textbook successfully compiled.")
     except Exception as e:
-        # 이제 KeyError: 'question' 오류가 발생하면 여기서 잡힙니다.
-        print(f"🚨 FATAL ERROR during KB initialization: {e}")
-        kb_dataframe = pd.DataFrame()
+        print(f"🚨 FATAL ERROR during knowledge base initialization: {e}")
+        KNOWLEDGE_TEXTBOOK = "오류: 지식 베이스 파일을 초기화하는 중 심각한 오류가 발생했습니다."
 
-def find_relevant_info_semantic(query: str) -> list[str]:
-    if kb_dataframe is None or kb_dataframe.empty: return []
-    query_embedding = get_embedding(query)
-    similarities = [(cosine_similarity(query_embedding, doc_embedding), i) for i, doc_embedding in enumerate(question_embeddings)]
-    similarities.sort(key=lambda x: x[0], reverse=True)
-
-    final_contexts = []
-    for sim, index in similarities[:MAX_CONTEXT_RESULTS]:
-        if sim >= SIMILARITY_THRESHOLD:
-            answer = kb_dataframe.iloc[index]['answer']
-            final_contexts.append(answer)
-    return final_contexts
 
 # ===================================================================
-#      Part 2: AI 답변 생성 엔진 (temperature=1 적용)
+#      Part 2: AI 답변 생성 엔진
 # ===================================================================
-def generate_ai_response_advanced(user_message: str, contexts: list[str]) -> str:
-    context_str = "\n\n---\n\n".join(contexts)
-    if not contexts:
-        return "죄송하지만 문의하신 내용과 관련된 정보를 찾지 못했습니다."
+def generate_ai_response_total_knowledge(user_message: str) -> str:
+    if not KNOWLEDGE_TEXTBOOK or "오류:" in KNOWLEDGE_TEXTBOOK:
+        return f"죄송합니다. 현재 챗봇의 지식 베이스에 문제가 발생하여 답변할 수 없습니다. (오류 원인: {KNOWLEDGE_TEXTBOOK})"
+    
+    system_instruction = f"""
+    당신은 크리스찬메모리얼파크의 모든 규정과 정보를 완벽하게 암기한 최상급 AI 전문가입니다.
+    당신의 유일한 정보 출처는 아래에 제공되는 '[크리스찬메모리얼파크 공식 지식 베이스]'입니다.
 
-    system_instruction = "..." # (이전의 시맨틱 서치용 프롬프트와 동일)
-
+    [매우 중요한 핵심 규칙]
+    1.  **절대적 사실 기반:** 당신의 답변은 반드시 아래 '[크리스찬메모리얼파크 공식 지식 베이스]'에 명시된 내용에만 100% 근거해야 합니다. 당신의 사전 지식, 추측, 외부 정보는 단 한 글자도 사용해서는 안 됩니다.
+    2.  **종합적 추론:** 사용자의 질문 의도를 파악하고, 지식 베이스 전체를 종합적으로 검토하여 질문과 관련된 모든 정보를 논리적으로 연결하여 하나의 완벽한 답변을 생성해야 합니다.
+    3.  **정보 부재 시 대응:** 만약 지식 베이스에 사용자가 질문한 내용이 없다면, 절대로 답변을 지어내지 말고 "문의하신 내용에 대한 정보는 정확한 안내가 어렵습니다. 관리사무소로 문의 주시기 바랍니다." 라고 솔직하게 답변하십시오.
+    4.  **전문가적이고 친절한 말투:** 복잡한 규정도 사용자가 이해하기 쉽도록, 전문가적이면서도 친절한 말투로 설명해야 합니다.
+    5.  **불필요한 답변 추천 안함 :** 답변은 사용자의 질문에서 벗어나지 않고 알기 쉽게 간결하고 핵심 내용이 모두 들어가게 하여야 한다.
+    ---
+    [크리스찬메모리얼파크 공식 지식 베이스]
+    {KNOWLEDGE_TEXTBOOK}
+    ---
+    """
     try:
         response = client.chat.completions.create(
-            model=CHAT_MODEL, messages=[{"role": "system", "content": system_instruction}, {"role": "user", "content": user_message}],
-            temperature=1, # <<< 사용자 요청에 따라 1로 수정 >>>
-            max_completion_tokens=1500,
+            model=CHAT_MODEL,
+            messages=[{"role": "system", "content": system_instruction}, {"role": "user", "content": user_message}],
+            temperature=1,
+            max_completion_tokens=500,
         )
         return response.choices[0].message.content
     except Exception as e:
         print(f"🚨 OpenAI API call failed: {e}")
-        return "죄송합니다. AI 답변을 생성하는 중 시스템 오류가 발생했습니다."
+        return "죄송합니다. AI 답변을 생성하는 중 시스템 오류가 발생했습니다. 잠시 후 다시 시도해주세요."
+
 
 # ===================================================================
 #      Part 3 & 4: 콜백 처리 및 메인 서버 로직
 # ===================================================================
 def process_and_send_callback(user_message, callback_url):
-    print("Starting background processing (Semantic Search)...")
-    contexts = find_relevant_info_semantic(user_message)
-    ai_response_text = generate_ai_response_advanced(user_message, contexts)
+    print("Starting background processing (Total Knowledge Ingestion)...")
+    ai_response_text = generate_ai_response_total_knowledge(user_message)
     final_response_data = {"version": "2.0", "template": {"outputs": [{"simpleText": {"text": ai_response_text}}]}}
     headers = {'Content-Type': 'application/json'}
     try:
@@ -130,13 +115,14 @@ def callback():
         thread.start()
         return jsonify({"version": "2.0", "useCallback": True})
     else:
-        contexts = find_relevant_info_semantic(user_message)
-        ai_response_text = generate_ai_response_advanced(user_message, contexts)
+        ai_response_text = generate_ai_response_total_knowledge(user_message)
         return jsonify({"version": "2.0", "template": {"outputs": [{"simpleText": {"text": ai_response_text}}]}})
 
-# Gunicorn 호환성을 위한 초기화 위치
-initialize_knowledge_base()
+
+# Gunicorn이 앱을 실행할 때 이 부분이 가장 먼저 실행됩니다.
+load_and_format_knowledge_base() # <--- 수정 완료된 부분
 
 if __name__ == '__main__':
+    # 로컬 테스트를 위한 서버 실행
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
