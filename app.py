@@ -122,38 +122,54 @@ def generate_ai_response_total_knowledge(user_message: str) -> str:
 
 
 # ===================================================================
-#      Part 3: 모니터링 및 콜백 처리 로직
+#      Part 3: 모니터링 및 콜백 처리 로직 (JANDI로 교체됨)
 # ===================================================================
 
-def send_to_slack(message: str):
-    """주어진 메시지를 슬랙 웹훅으로 비동기적으로 전송합니다."""
-    slack_webhook_url = os.getenv("SLACK_WEBHOOK_URL")
-    if not slack_webhook_url:
+def send_to_jandi(user_query: str, bot_answer: str):
+    """사용자 질문과 봇 답변을 JANDI 웹훅으로 비동기적으로 전송합니다."""
+    jandi_webhook_url = os.getenv("JANDI_WEBHOOK_URL")
+    if not jandi_webhook_url:
         return
 
-    payload = {"text": message}
+    # JANDI가 요구하는 헤더 형식
+    headers = {
+        'Accept': 'application/vnd.tosslab.jandi-v2+json',
+        'Content-Type': 'application/vnd.tosslab.jandi-v2+json'
+    }
+
+    # JANDI의 구조화된 메시지 형식에 맞춰 페이로드를 생성합니다.
+    payload = {
+        "body": "💬 신규 챗봇 문의 발생",
+        "connectColor": "#007AFF",  # JANDI 메시지 좌측에 표시될 색상
+        "connectInfo": [
+            {
+                "title": "사용자 질문:",
+                "description": user_query
+            },
+            {
+                "title": "AI 답변:",
+                "description": bot_answer
+            }
+        ]
+    }
+
     try:
-        requests.post(slack_webhook_url, data=json.dumps(payload), headers={'Content-Type': 'application/json'}, timeout=5)
-        print("INFO: Slack notification sent.")
+        requests.post(jandi_webhook_url, data=json.dumps(payload), headers=headers, timeout=5)
+        print("INFO: JANDI notification sent.")
     except requests.exceptions.RequestException as e:
-        # 슬랙 전송 실패가 챗봇의 핵심 기능에 영향을 주지 않도록 경고만 기록합니다.
-        print(f"⚠️ WARNING: Failed to send Slack notification: {e}")
+        print(f"⚠️ WARNING: Failed to send JANDI notification: {e}")
+
 
 def process_and_send_callback(user_message: str, callback_url: str):
-    """백그라운드에서 AI 답변 생성, 로깅, 슬랙 알림, 콜백 전송을 모두 처리합니다."""
+    """백그라운드에서 AI 답변 생성, 로깅, JANDI 알림, 콜백 전송을 모두 처리합니다."""
     print("INFO: Starting background processing for Total Knowledge Ingestion...")
     ai_response_text = generate_ai_response_total_knowledge(user_message)
 
-    # --- 최종 답변 검증 및 폴백(Fallback) 로직 ---
-    # AI가 빈 답변을 생성하거나, 답변 생성에 실패했는지 최종적으로 확인합니다.
-    # .strip()은 공백, 줄바꿈 등만 있는 경우도 비어있는 것으로 처리하여 안정성을 높입니다.
     final_text_for_user = ai_response_text
     if not final_text_for_user or not final_text_for_user.strip():
         print("🚨 CRITICAL: AI returned an empty or whitespace-only response. Using fallback message.")
         final_text_for_user = FALLBACK_MSG_EMPTY_RESPONSE
-    # ---------------------------------------------
 
-    # 서버 콘솔에 상세 로그를 기록합니다. (기본 모니터링)
     log_message = (
         f"{'='*50}\n"
         f"  [AI RESPONSE LOG]\n"
@@ -163,9 +179,8 @@ def process_and_send_callback(user_message: str, callback_url: str):
     )
     print(log_message)
 
-    # 슬랙으로 실시간 알림을 전송합니다. (고급 모니터링)
-    slack_message = f"💬 **New Chat Interaction**\n\n*User asked:*\n`{user_message}`\n\n*Bot answered:*\n```{final_text_for_user}```"
-    send_to_slack(slack_message)
+    # JANDI로 실시간 알림을 전송합니다. (고급 모니터링)
+    send_to_jandi(user_query=user_message, bot_answer=final_text_for_user)
 
     # 최종 답변을 카카오톡 서버로 전송합니다.
     final_response_data = {"version": "2.0", "template": {"outputs": [{"simpleText": {"text": final_text_for_user}}]}}
