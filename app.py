@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 
 # --- ⚙️ 시스템 설정 (Configuration) ---
 CHAT_MODEL = "gpt-5-nano" # (실제로는 gpt-4o 등으로 작동)
-EMBEDDING_MODEL = "text-embedding-3-small"
+EMBEDDING_MODEL = "text-embedding-3-large"
 MAX_CONTEXT_RESULTS = 3
 SIMILARITY_THRESHOLD = 0.75
 
