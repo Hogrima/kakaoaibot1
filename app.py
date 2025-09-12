@@ -104,7 +104,7 @@ def generate_ai_response_advanced(user_message: str, contexts: list[str]) -> str
     try:
         response = client.chat.completions.create(
             model=CHAT_MODEL, messages=[{"role": "system", "content": system_instruction}, {"role": "user", "content": user_message}],
-            temperature=0.3, max_completion_tokens=1500,
+            temperature=1, max_completion_tokens=1500,
         )
         return response.choices[0].message.content
     except Exception as e:
