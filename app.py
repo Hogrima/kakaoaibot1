@@ -25,9 +25,7 @@ from dotenv import load_dotenv
 # .env 파일에 OPENAI_API_KEY, SLACK_WEBHOOK_URL 등을 설정하세요.
 load_dotenv()
 
-CHAT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini") # 최신 고효율 모델 사용을 권장합니다.
-AI_TEMPERATURE = float(os.getenv("AI_TEMPERATURE", "0.8"))
-AI_MAX_TOKENS = int(os.getenv("AI_MAX_TOKENS", "800"))
+CHAT_MODEL = os.getenv("OPENAI_MODEL", "gpt-5-nano") # 최신 고효율 모델 사용을 권장합니다.
 KNOWLEDGE_FILE_NAME = "knowledge.csv"
 
 # --- 💡 상수 (Constants) ---
@@ -111,8 +109,6 @@ def generate_ai_response_total_knowledge(user_message: str) -> str:
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": user_message}
             ],
-            temperature=AI_TEMPERATURE,
-            max_tokens=AI_MAX_TOKENS,
         )
         ai_message = response.choices[0].message.content
 
