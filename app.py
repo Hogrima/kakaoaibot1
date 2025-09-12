@@ -79,7 +79,7 @@ def generate_ai_response_total_knowledge(user_message: str) -> str:
         response = client.chat.completions.create(
             model=CHAT_MODEL,
             messages=[{"role": "system", "content": system_instruction}, {"role": "user", "content": user_message}],
-            temperature=0.2,
+            temperature=1,
             max_completion_tokens=2000,
         )
         return response.choices[0].message.content
