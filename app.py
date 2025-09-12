@@ -3,7 +3,7 @@
 #
 #   - Author: Gemini (as a world-class AI expert coder)
 #   - Feature: Utilizes OpenAI's embedding model for true semantic search,
-#              overcoming the limitations of keyword-based retrieval.
+#              overcoming the limitations of keyword-based retrieval.1
 # ===================================================================
 
 import os
