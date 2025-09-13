@@ -227,7 +227,7 @@ def callback():
         ai_response_text = generate_ai_response_total_knowledge(user_message)
         # 동기식 처리 시에도 로깅과 알림을 보낼 수 있습니다.
         print(f"[INFO] AI Response (Sync): {ai_response_text}")
-        send_to_slack(f"💬 **New Chat (Sync)**\n\n*User:* {user_message}\n\n*Bot:*\n{ai_response_text}")
+        send_to_jandi(user_query=user_message, bot_answer=ai_response_text)
         return jsonify({"version": "2.0", "template": {"outputs": [{"simpleText": {"text": ai_response_text}}]}})
 
 
