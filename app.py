@@ -122,7 +122,7 @@ def generate_ai_response_total_knowledge(user_message: str) -> str:
 
 
 # ===================================================================
-#      Part 3: 모니터링 및 콜백 처리 로직 (JANDI로 교체됨)
+#      Part 3: 모니터링 및 콜백 처리 로직 (JANDI)
 # ===================================================================
 
 def send_to_jandi(user_query: str, bot_answer: str):
@@ -190,8 +190,8 @@ def process_and_send_callback(user_message: str, callback_url: str):
                 "quickReplies": [
                     {
                         "label": "관리사무실 전화",
-                        "action": "phone",
-                        "phoneNumber": "0319571260"
+                        "action": "webLink",
+                        "webLinkUrl": "tel:0319571260"
                     }
                 ]
             }
