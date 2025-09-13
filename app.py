@@ -206,9 +206,30 @@ def process_and_send_callback(user_message: str, callback_url: str):
             }
         }
 
+    # (2) 안전한 전송: callback_url 존재 확인, 로깅, UTF-8 인코딩, 응답 출력
+    if not callback_url:
+        print("🚨 ERROR: callback_url is empty or missing. Cannot send reply to Kakao.")
+        return
+
     try:
-        requests.post(callback_url, json=final_response_data, timeout=10)
-        print("✅ INFO: Successfully sent final response via callback.")
+        print("INFO: Sending callback to Kakao. callback_url =", callback_url)
+        # payload 로그 (주의: 실제 운영에서는 개인정보 포함시 마스킹 고려)
+        print("INFO: final_response_data =", json.dumps(final_response_data, ensure_ascii=False))
+
+        headers = {"Content-Type": "application/json; charset=utf-8"}
+        body = json.dumps(final_response_data, ensure_ascii=False).encode("utf-8")
+
+        resp = requests.post(callback_url, data=body, headers=headers, timeout=10)
+
+        print("✅ INFO: Kakao callback POST completed.")
+        print("Kakao callback response status:", resp.status_code)
+        print("Kakao callback response body:", resp.text)
+
+        if resp.status_code != 200:
+            print("⚠️ WARNING: Kakao returned non-200. Check payload format, callback_url, or Kakao logs.")
+            # 디버깅 추가: 400/401/403/404 등일 경우 원인 안내
+            if resp.status_code in (400, 401, 403, 404):
+                print(f"⚠️ DETAIL: Status {resp.status_code} — payload/headers/callback URL 확인 필요.")
     except requests.exceptions.RequestException as e:
         print(f"🚨 ERROR: Failed to send callback to Kakao: {e}")
 
