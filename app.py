@@ -20,7 +20,7 @@ from flask import Flask, request, jsonify
 from openai import OpenAI
 from dotenv import load_dotenv
 
-# --- ⚙️ 시스템 설정 (Configuration) ---
+# --- ⚙️ 시스템 설정 (Configuration) ---ㅡ
 # 환경 변수를 통해 설정을 관리하여 유연성을 확보합니다.
 # .env 파일에 OPENAI_API_KEY, SLACK_WEBHOOK_URL 등을 설정하세요.
 load_dotenv()
