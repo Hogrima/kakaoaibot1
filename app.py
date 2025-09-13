@@ -180,7 +180,32 @@ def process_and_send_callback(user_message: str, callback_url: str):
     send_to_jandi(user_query=user_message, bot_answer=final_text_for_user)
 
     # 최종 답변을 카카오톡 서버로 전송합니다.
-    final_response_data = {"version": "2.0", "template": {"outputs": [{"simpleText": {"text": final_text_for_user}}]}}
+    if final_text_for_user == FALLBACK_MSG_NO_INFO:
+        final_response_data = {
+            "version": "2.0",
+            "template": {
+                "outputs": [
+                    {"simpleText": {"text": final_text_for_user}}
+                ],
+                "quickReplies": [
+                    {
+                        "label": "관리사무실 전화",
+                        "action": "phone",
+                        "phoneNumber": "0319571260"
+                    }
+                ]
+            }
+        }
+    else:
+        final_response_data = {
+            "version": "2.0",
+            "template": {
+                "outputs": [
+                    {"simpleText": {"text": final_text_for_user}}
+                ]
+            }
+        }
+
     try:
         requests.post(callback_url, json=final_response_data, timeout=10)
         print("✅ INFO: Successfully sent final response via callback.")
