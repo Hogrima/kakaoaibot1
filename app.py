@@ -129,33 +129,30 @@ def send_to_jandi(user_query: str, bot_answer: str):
     """사용자 질문과 봇 답변을 JANDI 웹훅으로 비동기적으로 전송합니다."""
     jandi_webhook_url = os.getenv("JANDI_WEBHOOK_URL")
     if not jandi_webhook_url:
+        print("🚨 ERROR: JANDI_WEBHOOK_URL not found in environment variables.")
         return
 
-    # JANDI가 요구하는 헤더 형식
+    # JANDI에서 요구하는 헤더 형식 (Content-Type은 JSON으로 변경)
     headers = {
-        'Accept': 'application/vnd.tosslab.jandi-v2+json',
-        'Content-Type': 'application/vnd.tosslab.jandi-v2+json'
+        "Accept": "application/vnd.tosslab.jandi-v2+json",
+        "Content-Type": "application/json"
     }
 
-    # JANDI의 구조화된 메시지 형식에 맞춰 페이로드를 생성합니다.
+    # JANDI의 구조화된 메시지 형식
     payload = {
         "body": "💬 신규 챗봇 문의 발생",
-        "connectColor": "#007AFF",  # JANDI 메시지 좌측에 표시될 색상
+        "connectColor": "#007AFF",
         "connectInfo": [
-            {
-                "title": "사용자 질문:",
-                "description": user_query
-            },
-            {
-                "title": "AI 답변:",
-                "description": bot_answer
-            }
+            {"title": "사용자 질문:", "description": user_query},
+            {"title": "AI 답변:", "description": bot_answer}
         ]
     }
 
     try:
-        requests.post(jandi_webhook_url, data=json.dumps(payload), headers=headers, timeout=5)
-        print("INFO: JANDI notification sent.")
+        resp = requests.post(jandi_webhook_url, json=payload, headers=headers, timeout=5)
+        print("INFO: JANDI Response:", resp.status_code, resp.text)
+        if resp.status_code != 200:
+            print("⚠️ WARNING: JANDI did not accept the message. Check payload format or webhook URL.")
     except requests.exceptions.RequestException as e:
         print(f"⚠️ WARNING: Failed to send JANDI notification: {e}")
 
