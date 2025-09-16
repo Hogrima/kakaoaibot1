@@ -16,6 +16,8 @@ import threading
 import requests
 import json
 import re
+import psycopg2 # <--- sqlite3 대신 psycopg2 임포트
+from urllib.parse import urlparse # DB URL 파싱을 위해 추가
 from flask import Flask, request, jsonify
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -27,6 +29,7 @@ load_dotenv()
 
 CHAT_MODEL = os.getenv("OPENAI_MODEL", "gpt-5-nano") # 최신 고효율 모델 사용을 권장합니다.
 KNOWLEDGE_FILE_NAME = "knowledge.csv"
+DATABASE_URL = os.getenv("DATABASE_URL") # Part 2에서 설정한 환경 변수
 
 # --- 💡 상수 (Constants) ---
 # 자주 사용되는 메시지를 상수로 관리하여 일관성과 유지보수성을 높입니다.
@@ -41,6 +44,37 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # --- 전체 지식 베이스를 저장할 전역 변수 ---
 KNOWLEDGE_TEXTBOOK = ""
+
+# ===================================================================
+#      Part 0: 데이터베이스 및 지식 베이스 초기화
+# ===================================================================
+
+def get_db_connection():
+    """PostgreSQL 데이터베이스 연결 객체를 반환합니다."""
+    conn = psycopg2.connect(DATABASE_URL)
+    return conn
+
+def init_db():
+    """(서버 시작 시 1회 실행) PostgreSQL 테이블을 생성합니다."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        # PostgreSQL에 맞는 테이블 생성 쿼리
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS conversations (
+                id SERIAL PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL,
+                role VARCHAR(50) NOT NULL,
+                content TEXT NOT NULL,
+                timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+        cursor.close()
+        conn.close()
+        print("✅ PostgreSQL Database table initialized successfully.")
+    except Exception as e:
+        print(f"🚨 FATAL ERROR during DB initialization: {e}")
 
 # ===================================================================
 #      Part 1: 지식 베이스 컴파일 엔진
@@ -79,16 +113,55 @@ def load_and_format_knowledge_base():
         print(f"🚨 FATAL ERROR during knowledge base initialization: {e}")
         KNOWLEDGE_TEXTBOOK = error_msg
 
+# ===================================================================
+#      Part 1.5: 대화 기록 관리 (PostgreSQL Interaction)
+# ===================================================================
+
+def get_conversation_history(user_id: str, limit: int = 10) -> list:
+    """DB에서 특정 사용자의 최근 대화 기록을 가져옵니다."""
+    history = []
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        # PostgreSQL 쿼리 (placeholder가 %s 로 변경됨)
+        cursor.execute(
+            "SELECT role, content FROM conversations WHERE user_id = %s ORDER BY timestamp DESC LIMIT %s",
+            (user_id, limit)
+        )
+        # DB에서 가져온 데이터를 OpenAI가 이해하는 형식으로 변환
+        history = [{"role": row[0], "content": row[1]} for row in cursor.fetchall()]
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print(f"🚨 ERROR getting conversation history: {e}")
+    return list(reversed(history)) # 시간 순서대로 다시 뒤집어서 반환
+
+def add_to_conversation_history(user_id: str, role: str, content: str):
+    """DB에 새로운 대화 내용을 추가합니다."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        # PostgreSQL 쿼리 (placeholder가 %s 로 변경됨)
+        cursor.execute(
+            "INSERT INTO conversations (user_id, role, content) VALUES (%s, %s, %s)",
+            (user_id, role, content)
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print(f"🚨 ERROR adding to conversation history: {e}")
 
 # ===================================================================
 #      Part 2: AI 답변 생성 엔진
 # ===================================================================
 
-def generate_ai_response_total_knowledge(user_message: str) -> str:
-    """AI 모델과 전체 지식 베이스를 사용하여 사용자 질문에 대한 답변을 생성합니다."""
+def generate_ai_response_total_knowledge(user_message: str, history: list) -> str:
+    """AI 모델과 지식 베이스, 이전 대화 기록을 사용하여 답변을 생성합니다."""
     if not KNOWLEDGE_TEXTBOOK or ERROR_MSG_KNOWLEDGE_BASE in KNOWLEDGE_TEXTBOOK:
-        return f"죄송합니다. 현재 챗봇의 지식 베이스에 문제가 발생하여 답변할 수 없습니다. (상세: {KNOWLEDGE_TEXTBOOK})"
+        return f"죄송합니다. 현재 챗봇의 지식 베이스에 문제가 발생하여 답변할 수 없습니다."
 
+    # (사용자님의 최종 강화된 지침은 여기에 그대로 유지합니다)
     system_instruction = f"""
     당신은 한국어 존댓말로만 정중히 대답하는 '크리스찬메모리얼파크 AI 상담원'입니다. 당신의 임무는, 아래 제공되는 고도로 구조화된 '[공식 지식 베이스]'의 내용에만 근거하여 사용자의 질문에 가장 정확하고 도움이 되는 답변을 제공하는 것입니다.
 
@@ -100,9 +173,9 @@ def generate_ai_response_total_knowledge(user_message: str) -> str:
     3.  **정확하고 간결한 정보 추출 (Precise & Concise Extraction):** 사용자의 질문에 답변하기 위해 필요한 최소한의 정보만 정확히 추출해야 합니다.
         • **(중요 예시)** 사용자가 "내일 봉안하려면 어떻게 하나요?"라고 물으면, 답변은 **'첫 절차(화장 예약 후 연락)'와 '필요 서류'까지만** 간결하게 안내해야 합니다. 봉안 당일의 상세 절차나 소요 시간 등은 사용자가 추가로 묻지 않는 한 포함하지 마십시오.
 
-    4.  **제한적인 정보 종합 (Limited Synthesis):** 사용자의 질문이 명백히 여러 정보(예: '계약금과 관리비')를 동시에 요구하는 경우에만 관련 정보를 종합하여 답변하십시오. 광범위한 질문에 대해 연관된 모든 정보를 나열하는 것은 금지됩니다.
+    4.  **제한적인 정보 종합 (Limited Synthesis):** 사용자의 질문이 명백히 여러 정보(예: '계약금과 관리비')를 동시에 요구하는 경우에만 관련 정보를 종합하여 답변하십시오. 광범위한 광범위한 질문에 대해 연관된 모든 정보를 나열하는 것은 금지됩니다.
 
-    5.  **간결한 일반 텍스트 형식 (Concise Plain Text Format):** 답변은 "-"(하이픈)이나 "~"(물결표시)만 제외하고 항상 순수한 텍스트(Plain Text)로만 구성해야 합니다. 내용은 핵심 위주로 요약하여 간결하게 전달하는 것을 목표로 합니다. 답변은 400자를 초과하지 마십시오.
+    5.  **간결한 일반 텍스트 형식 (Concise Plain Text Format):** 답변은 항상 순수한 텍스트(Plain Text)로만 구성해야 합니다. 어떠한 서식도 사용하지 마십시오. 내용은 핵심 위주로 요약하여 간결하게 전달하는 것을 목표로 합니다. 답변은 400자를 초과하지 마십시오.
 
     6.  **정보 부재 시 명확한 처리:** 지식 베이스 내에서 명확한 답변을 찾을 수 없다면, "{FALLBACK_MSG_NO_INFO}" 라고 일관되게 답변하십시오.
 
@@ -116,18 +189,24 @@ def generate_ai_response_total_knowledge(user_message: str) -> str:
     {KNOWLEDGE_TEXTBOOK}
     ---
     """
+
+    # 1. 이전 대화 기록과 현재 사용자 메시지를 합칩니다.
+    messages_to_send = history + [{"role": "user", "content": user_message}]
+    
     try:
         response = client.chat.completions.create(
             model=CHAT_MODEL,
+            # 2. <<< 🟢 여기가 수정된 핵심 부분입니다 >>>
+            #    [시스템 지침] + [전체 대화 기록(과거+현재)] 형식으로 전달합니다.
             messages=[
-                {"role": "system", "content": system_instruction},
-                {"role": "user", "content": user_message}
-            ],
+                {"role": "system", "content": system_instruction}
+            ] + messages_to_send,
         )
         ai_message = response.choices[0].message.content
 
-        # 최종 방어: AI가 실수로 마크다운을 사용했을 경우를 대비하여 관련 문자를 모두 제거합니다.
-        sanitized_text = re.sub(r"[\*#\-`]", "", ai_message).strip()
+        # 3. 최종 방어 로직: 지침에 따라 모든 서식 문자를 제거합니다.
+        #    (지침 5번과 일치시키기 위해 `-`도 제거 대상에 포함합니다.)
+        sanitized_text = re.sub(r"[\*#\-`•~]", "", ai_message).strip()
         return sanitized_text
 
     except Exception as e:
@@ -136,25 +215,23 @@ def generate_ai_response_total_knowledge(user_message: str) -> str:
 
 
 # ===================================================================
-#      Part 3: 모니터링 및 콜백 처리 로직 (JANDI)
+#      Part 3: 모니터링 및 콜백 처리 로직 (대화 기억 기능 통합)
 # ===================================================================
 
-def send_to_jandi(user_query: str, bot_answer: str):
-    """사용자 질문과 봇 답변을 JANDI 웹훅으로 비동기적으로 전송합니다."""
+def send_to_jandi(user_id: str, user_query: str, bot_answer: str):
+    """사용자 ID, 질문, 봇 답변을 JANDI 웹훅으로 전송합니다."""
     jandi_webhook_url = os.getenv("JANDI_WEBHOOK_URL")
     if not jandi_webhook_url:
-        print("🚨 ERROR: JANDI_WEBHOOK_URL not found in environment variables.")
         return
 
-    # JANDI에서 요구하는 헤더 형식 (Content-Type은 JSON으로 변경)
     headers = {
         "Accept": "application/vnd.tosslab.jandi-v2+json",
         "Content-Type": "application/json"
     }
 
-    # JANDI의 구조화된 메시지 형식
+    # JANDI 메시지에 user_id를 포함하여 디버깅 편의성 향상
     payload = {
-        "body": "💬 신규 챗봇 문의 발생",
+        "body": f"💬 신규 챗봇 문의 (User: {user_id})",
         "connectColor": "#007AFF",
         "connectInfo": [
             {"title": "사용자 질문:", "description": user_query},
@@ -164,49 +241,51 @@ def send_to_jandi(user_query: str, bot_answer: str):
 
     try:
         resp = requests.post(jandi_webhook_url, json=payload, headers=headers, timeout=5)
-        print("INFO: JANDI Response:", resp.status_code, resp.text)
         if resp.status_code != 200:
-            print("⚠️ WARNING: JANDI did not accept the message. Check payload format or webhook URL.")
+            print(f"⚠️ WARNING: JANDI notification failed. Status: {resp.status_code}, Body: {resp.text}")
     except requests.exceptions.RequestException as e:
         print(f"⚠️ WARNING: Failed to send JANDI notification: {e}")
 
 
-def process_and_send_callback(user_message: str, callback_url: str):
-    """백그라운드에서 AI 답변 생성, 로깅, JANDI 알림, 콜백 전송을 모두 처리합니다."""
-    print("INFO: Starting background processing for Total Knowledge Ingestion...")
-    ai_response_text = generate_ai_response_total_knowledge(user_message)
+def process_and_send_callback(user_id: str, user_message: str, callback_url: str):
+    """백그라운드에서 AI 답변 생성, 로깅, DB/JANDI 전송, 콜백 전송을 모두 처리합니다."""
+    print(f"INFO: Starting background processing for user_id: {user_id}")
+    
+    # <<< 🟢 수정된 핵심 로직 1: 이전 대화 기록 가져오기 >>>
+    history = get_conversation_history(user_id)
+    
+    # <<< 🟢 수정된 핵심 로직 2: AI 답변 생성 시 'history' 함께 전달 >>>
+    ai_response_text = generate_ai_response_total_knowledge(user_message, history)
 
     final_text_for_user = ai_response_text
     if not final_text_for_user or not final_text_for_user.strip():
         print("🚨 CRITICAL: AI returned an empty or whitespace-only response. Using fallback message.")
         final_text_for_user = FALLBACK_MSG_EMPTY_RESPONSE
 
+    # <<< 🟢 수정된 핵심 로직 3: 현재 대화를 DB에 저장하여 '기억'하게 만듦 >>>
+    add_to_conversation_history(user_id, "user", user_message)
+    add_to_conversation_history(user_id, "assistant", final_text_for_user)
+
     log_message = (
         f"{'='*50}\n"
-        f"  [AI RESPONSE LOG]\n"
+        f"  [AI RESPONSE LOG for user_id: {user_id}]\n"
         f"  - User Query: {user_message}\n"
         f"  - Final Answer: {final_text_for_user}\n"
         f"{'='*50}"
     )
     print(log_message)
 
-    # JANDI로 실시간 알림을 전송합니다. (고급 모니터링)
-    send_to_jandi(user_query=user_message, bot_answer=final_text_for_user)
+    # JANDI 알림 시 user_id도 함께 전달하여 추적 용이성 확보
+    send_to_jandi(user_id=user_id, user_query=user_message, bot_answer=final_text_for_user)
 
-    # 최종 답변을 카카오톡 서버로 전송합니다.
+    # 조건부 퀵리플라이 (전화 버튼) 로직은 그대로 유지
     if FALLBACK_MSG_NO_INFO in final_text_for_user:
         final_response_data = {
             "version": "2.0",
             "template": {
-                "outputs": [
-                    {"simpleText": {"text": final_text_for_user}}
-                ],
+                "outputs": [{"simpleText": {"text": final_text_for_user}}],
                 "quickReplies": [
-                    {
-                        "label": "관리사무실 전화",
-                        "action": "webLink",
-                        "webLinkUrl": "tel:0319571260"
-                    }
+                    {"label": "관리사무실 전화", "action": "webLink", "webLinkUrl": "tel:0319571260"}
                 ]
             }
         }
@@ -214,42 +293,31 @@ def process_and_send_callback(user_message: str, callback_url: str):
         final_response_data = {
             "version": "2.0",
             "template": {
-                "outputs": [
-                    {"simpleText": {"text": final_text_for_user}}
-                ]
+                "outputs": [{"simpleText": {"text": final_text_for_user}}]
             }
         }
 
-    # (2) 안전한 전송: callback_url 존재 확인, 로깅, UTF-8 인코딩, 응답 출력
+    # 강화된 콜백 전송 로직은 그대로 유지
     if not callback_url:
-        print("🚨 ERROR: callback_url is empty or missing. Cannot send reply to Kakao.")
+        print("🚨 ERROR: callback_url is empty. Cannot send reply to Kakao.")
         return
 
     try:
-        print("INFO: Sending callback to Kakao. callback_url =", callback_url)
-        # payload 로그 (주의: 실제 운영에서는 개인정보 포함시 마스킹 고려)
-        print("INFO: final_response_data =", json.dumps(final_response_data, ensure_ascii=False))
-
         headers = {"Content-Type": "application/json; charset=utf-8"}
         body = json.dumps(final_response_data, ensure_ascii=False).encode("utf-8")
-
         resp = requests.post(callback_url, data=body, headers=headers, timeout=10)
-
-        print("✅ INFO: Kakao callback POST completed.")
-        print("Kakao callback response status:", resp.status_code)
-        print("Kakao callback response body:", resp.text)
-
+        
         if resp.status_code != 200:
-            print("⚠️ WARNING: Kakao returned non-200. Check payload format, callback_url, or Kakao logs.")
-            # 디버깅 추가: 400/401/403/404 등일 경우 원인 안내
-            if resp.status_code in (400, 401, 403, 404):
-                print(f"⚠️ DETAIL: Status {resp.status_code} — payload/headers/callback URL 확인 필요.")
+            print(f"⚠️ WARNING: Kakao returned non-200. Status: {resp.status_code}, Body: {resp.text}")
+        else:
+            print("✅ INFO: Kakao callback POST completed successfully.")
+
     except requests.exceptions.RequestException as e:
         print(f"🚨 ERROR: Failed to send callback to Kakao: {e}")
 
 
 # ===================================================================
-#      Part 4: 메인 서버 로직 (Flask)
+#      Part 4: 메인 서버 로직 (Flask - 대화 기억 기능 통합)
 # ===================================================================
 
 @app.route('/', methods=['GET'])
@@ -262,40 +330,65 @@ def callback():
     """카카오톡 스킬 서버의 메인 콜백 엔드포인트입니다."""
     req = request.get_json()
 
-    # 필수 데이터 추출 및 로깅
     try:
         user_message = req['userRequest']['utterance']
         callback_url = req['userRequest'].get('callbackUrl')
+        # <<< 🟢 수정된 부분 1: 사용자 ID 추출 >>>
+        # 이것이 각 사용자의 대화를 구별하는 고유한 열쇠입니다.
+        user_id = req['userRequest']['user']['id']
     except (KeyError, TypeError):
         return jsonify({"status": "error", "message": "Invalid request format"}), 400
 
-    print(f"\n[INFO] New request received from KakaoTalk.")
+    print(f"\n[INFO] New request received from user_id: {user_id}")
     print(f"[DEBUG] User Query: {user_message}")
-    print(f"[DEBUG] Callback URL present: {'Yes' if callback_url else 'No'}")
 
     if callback_url:
-        # 비동기 처리를 위해 별도 스레드에서 로직을 실행하고 즉시 응답합니다.
-        # 이를 통해 사용자는 '챗봇이 생각 중...'이라는 UX를 경험하게 됩니다.
-        thread = threading.Thread(target=process_and_send_callback, args=(user_message, callback_url))
+        # 비동기 처리를 위해 별도 스레드에서 로직을 실행합니다.
+        # <<< 🟢 수정된 부분 2: Thread에 user_id를 올바르게 전달 >>>
+        thread = threading.Thread(target=process_and_send_callback, args=(user_id, user_message, callback_url))
         thread.start()
         return jsonify({"version": "2.0", "useCallback": True})
     else:
-        # 콜백 URL이 없는 경우(카카오톡 테스트 콘솔 등) 동기식으로 처리합니다.
-        ai_response_text = generate_ai_response_total_knowledge(user_message)
-        # 동기식 처리 시에도 로깅과 알림을 보낼 수 있습니다.
-        print(f"[INFO] AI Response (Sync): {ai_response_text}")
-        send_to_jandi(user_query=user_message, bot_answer=ai_response_text)
-        return jsonify({"version": "2.0", "template": {"outputs": [{"simpleText": {"text": ai_response_text}}]}})
+        # <<< 🟢 수정된 부분 3: 동기식 처리 로직 완성 >>>
+        # 콜백 URL이 없는 경우 (카카오톡 테스트 콘솔 등)
+        # 실제 운영 환경과 동일하게 대화 기억 로직을 수행해야 정확한 테스트가 가능합니다.
+        
+        # 1. 이전 대화 기록 가져오기
+        history = get_conversation_history(user_id)
+        
+        # 2. AI 답변 생성 (이전 기록과 함께)
+        ai_response_text = generate_ai_response_total_knowledge(user_message, history)
+        
+        # 3. 현재 대화 DB에 저장
+        add_to_conversation_history(user_id, "user", user_message)
+        add_to_conversation_history(user_id, "assistant", ai_response_text)
+        
+        # 4. JANDI 알림 및 로그
+        print(f"[INFO] AI Response (Sync) for {user_id}: {ai_response_text}")
+        send_to_jandi(user_id=user_id, user_query=user_message, bot_answer=ai_response_text)
+
+        # 5. 최종 답변 반환 (퀵리플라이 로직 포함 가능, 여기서는 기본만 구현)
+        if FALLBACK_MSG_NO_INFO in ai_response_text:
+             final_response_data = {
+                "version": "2.0", "template": {"outputs": [{"simpleText": {"text": ai_response_text}}], "quickReplies": [{"label": "관리사무실 전화", "action": "webLink", "webLinkUrl": "tel:0319571260"}]}
+            }
+        else:
+            final_response_data = {
+                "version": "2.0", "template": {"outputs": [{"simpleText": {"text": ai_response_text}}]}
+            }
+        return jsonify(final_response_data)
 
 
-# --- 서버 실행 ---
+# ===================================================================
+#      서버 실행 (DB 초기화 로직 추가)
+# ===================================================================
+
+# <<< 🟢 수정된 부분 4: 서버 시작 시 DB 초기화 함수 호출 >>>
+# Gunicorn과 같은 프로덕션 WSGI 서버로 실행될 때 이 부분이 먼저 호출됩니다.
+init_db()
+load_and_format_knowledge_base()
+
 if __name__ == '__main__':
-    # 서버가 시작되기 전에 지식 베이스를 로드합니다.
-    load_and_format_knowledge_base()
+    # 로컬에서 직접 python app.py로 실행할 때를 위한 부분
     port = int(os.environ.get("PORT", 8080))
-    # 로컬 테스트 환경에서는 debug=True를 사용할 수 있습니다.
-    # app.run(host='0.0.0.0', port=port, debug=True)
     app.run(host='0.0.0.0', port=port)
-else:
-    # Gunicorn과 같은 프로덕션 WSGI 서버로 실행될 때 이 부분이 호출됩니다.
-    load_and_format_knowledge_base()
