@@ -184,7 +184,7 @@ def generate_ai_response_total_knowledge(user_message: str, history: list) -> st
             ] + messages_to_send,
         )
         ai_message = response.choices[0].message.content
-        sanitized_text = re.sub(r"[\*#\-`•~]", "", ai_message).strip()
+        sanitized_text = re.sub(r"[\*#\`•]", "", ai_message).strip()
         return sanitized_text
         
     except Exception as e:
