@@ -146,7 +146,8 @@ def generate_ai_response_total_knowledge(user_message: str, history: list) -> st
     if not KNOWLEDGE_TEXTBOOK or ERROR_MSG_KNOWLEDGE_BASE in KNOWLEDGE_TEXTBOOK:
         return f"죄송합니다. 현재 챗봇의 지식 베이스에 문제가 발생하여 답변할 수 없습니다."
 
-system_instruction = f"""
+    # (이전 대화의 맥락 오염을 방지하는 최종 강화된 지침)
+    system_instruction = f"""
     당신은 한국어 존댓말로만 정중히 대답하는 '크리스찬메모리얼파크 AI 상담원'입니다. 당신의 임무는, 아래 제공되는 고도로 구조화된 '[공식 지식 베이스]'의 내용에만 근거하여 사용자의 질문에 가장 정확하고 도움이 되는 답변을 제공하는 것입니다.
 
     [답변 생성 핵심 원칙]
@@ -172,6 +173,7 @@ system_instruction = f"""
     {KNOWLEDGE_TEXTBOOK}
     ---
     """
+
     messages_to_send = history + [{"role": "user", "content": user_message}]
     
     try:
@@ -184,6 +186,7 @@ system_instruction = f"""
         ai_message = response.choices[0].message.content
         sanitized_text = re.sub(r"[\*#\-`•~]", "", ai_message).strip()
         return sanitized_text
+        
     except Exception as e:
         print(f"🚨 ERROR: OpenAI API call failed for user message '{user_message}'. Details: {e}")
         return ERROR_MSG_AI_FAILED
