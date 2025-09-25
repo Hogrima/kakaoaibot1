@@ -194,7 +194,6 @@ def generate_ai_response_total_knowledge(user_message: str, history: list) -> st
             messages=[
                 {"role": "system", "content": system_instruction}
             ] + messages_to_send,
-            temperature=0.0 # [추가] 일관된 답변을 위해 온도를 0으로 설정
         )
         ai_message = response.choices[0].message.content
         sanitized_text = re.sub(r"[\*#\`•]", "", ai_message).strip()
